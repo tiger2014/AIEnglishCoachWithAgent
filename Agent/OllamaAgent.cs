@@ -12,12 +12,12 @@ namespace AIEnglishCoachWithAgent.Agent
     public class OllamaAgent
     {
         public AIAgent _agent;
-        public OllamaAgent(string modelName, string url = "http://localhost:11434")
+        public OllamaAgent(string modelName, string instructions, string url = "http://localhost:11434")
         {
             IChatClient client = new OllamaApiClient(url, modelName);
             _agent = new ChatClientAgent(
                         client,
-                        instructions: "Your nmae is Stone. You are a spoken English practice partner. Please use only very simple vocabulary and short sentences. Your goal is to help the user have daily conversations in an easy-to-understand way. Please keep the conversation simple and direct. My name is David",
+                        instructions: instructions,
                         name: "Coach"
                         );                        
         }

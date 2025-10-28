@@ -1,5 +1,6 @@
 ﻿using AIEnglishCoachWithAgent.Agent;
 using Microsoft.Agents.AI;
+using System.IO;
 using System.Threading;
 
 namespace AIEnglishCoachWithAgent
@@ -19,20 +20,33 @@ namespace AIEnglishCoachWithAgent
         public Form1()
         {
             InitializeComponent();
-            _recorder = new MicrophoneRecorder();
-            _whisper = SpeechRecognizer.CreateAsync("ggml-small.en.bin").Result;
-            _speaker = new SpeechSynthesizer();
-            _ollamaAgent = new OllamaAgent("gemma3:4b");
-            _thread = _ollamaAgent.CreateNewChatThread();
+            this.FormClosing += Form1_FormClosing;
+            this.Load += new System.EventHandler(Form1_Load);
         }
 
-        private void Form1_Load(object sender, EventArgs e)
+        private async void Form1_Load(object sender, EventArgs e)
         {
+            this.btnStart.Enabled = false;
+            this.btnStop.Enabled = false;
+            this.txtResult.Text = "Initializing, please wait...\r\n";
+            this.txtResult.Font = new Font("Microsoft YaHei", 14);
 
+            _recorder = new MicrophoneRecorder();
+            _whisper = await SpeechRecognizer.CreateAsync("ggml-small.en.bin");
+            _speaker = new SpeechSynthesizer();
+            //string instructions = "Your name is Stone. You are a spoken English practice partner. Please use only very simple vocabulary and short sentences. Your goal is to help the user have daily conversations in an easy-to-understand way. Please keep the conversation simple and direct. My name is David";
+
+            string instructions = "Your name is Stone. You are an English conversation practice partner. Your responses must use vocabulary and sentence structures appropriate or below for the CET-4 (College English Test Band 4) level. Your goal is to conduct engaging daily conversations. IMPORTANT: For TTS compatibility, your output must only contain standard words and common punctuation marks like periods, commas, question marks, and exclamation points. Do not use any special characters, emojis, parentheses, quotation marks, or symbols. My nmae is David";
+            _ollamaAgent = new OllamaAgent("gemma3:4b", instructions);
+            _thread = _ollamaAgent.CreateNewChatThread();
+
+            this.txtResult.Text = "Ready. Please start recording.\r\n";
+            this.btnStart.Enabled = true;
         }
 
         private void btnStart_Click(object sender, EventArgs e)
         {
+            btnStop.Enabled = true;
             _recorder.StartRecording();
             //txtResult.Text = "录音";
         }
@@ -40,17 +54,36 @@ namespace AIEnglishCoachWithAgent
         private async void btnStop_Click(object sender, EventArgs e)
         {
             var stream = _recorder.StopRecording();
-            //txtResult.Text = ".....";
+            btnStart.Enabled = false;
+            btnStop.Enabled = false;
+            txtResult.AppendText("Processing, please wait...\r\n");
 
-            string text = await _whisper.TranscribeAsync(stream);
+            try
+            {
+                string text = await _whisper.TranscribeAsync(stream);
 
-            txtResult.Text += text + Environment.NewLine;
+                txtResult.AppendText($"David: {text}\r\n");
 
-            var response = await _ollamaAgent._agent.RunAsync(text, _thread);
+                var response = await _ollamaAgent._agent.RunAsync(text, _thread);
 
-            txtResult.Text += response.Text + Environment.NewLine;
+                txtResult.AppendText($"Stone: {response.Text}\r\n\r\n");
 
-            await _speaker.SpeakAsync(response.Text);
+                await _speaker.SpeakAsync(response.Text);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"An error occurred: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                txtResult.AppendText($"ERROR: {ex.Message}\r\n\r\n");
+            }
+            finally
+            {
+                btnStart.Enabled = true;
+                btnStop.Enabled = false;
+            }
+        }
+        private void Form1_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            _whisper?.Dispose();
         }
         private void InitializeComponent()
         {
@@ -69,6 +102,7 @@ namespace AIEnglishCoachWithAgent
             // 
             // btnStop
             // 
+            this.btnStop.Enabled = false;
             this.btnStop.Location = new System.Drawing.Point(140, 20);
             this.btnStop.Name = "btnStop";
             this.btnStop.Size = new System.Drawing.Size(100, 40);

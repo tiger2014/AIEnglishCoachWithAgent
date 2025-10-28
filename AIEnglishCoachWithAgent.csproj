@@ -17,4 +17,10 @@
     <PackageReference Include="Whisper.net.Runtime" Version="1.8.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="models\ggml-small.en.bin">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

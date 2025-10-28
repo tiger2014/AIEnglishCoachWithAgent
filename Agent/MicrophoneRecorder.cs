@@ -33,11 +33,26 @@ public class MicrophoneRecorder
     {
         if (!IsRecording) return Stream.Null;
 
-        _waveIn.StopRecording();
-        _writer.Flush();
-        _memoryStream.Position = 0; // 重置流位置以便后续读取
-        IsRecording = false;
+        Stream streamToReturn;
 
-        return _memoryStream;
+        try
+        {
+            _waveIn?.StopRecording();
+        }
+        finally
+        {
+            _writer?.Dispose(); // 这会更新WAV文件头并关闭 _memoryStream
+            _waveIn?.Dispose();
+
+            // 因为 _memoryStream 已被关闭，我们需要创建一个新的流来返回数据
+            streamToReturn = new MemoryStream(_memoryStream.ToArray());
+            streamToReturn.Position = 0;
+
+            _writer = null;
+            _waveIn = null;
+            IsRecording = false;
+        }
+
+        return streamToReturn;
     }
 }
