@@ -2,6 +2,7 @@
 using Microsoft.Agents.AI;
 using System.IO;
 using System.Threading;
+using Timer = System.Windows.Forms.Timer;
 
 namespace AIEnglishCoachWithAgent
 {
@@ -20,15 +21,24 @@ namespace AIEnglishCoachWithAgent
         OllamaAgent _ollamaAgent;
 
         // 平滑滚动相关
-        private System.Windows.Forms.Timer scrollTimer;
+        private Timer scrollTimer;
         private int targetScrollPosition;
         private int scrollStep;
+
+        // 键盘状态
+        private bool isRecording = false;
+        private bool isProcessing = false;
 
         public Form1()
         {
             InitializeComponent();
             this.FormClosing += Form1_FormClosing;
             this.Load += new System.EventHandler(Form1_Load);
+
+            // 启用键盘事件
+            this.KeyPreview = true;
+            this.KeyDown += Form1_KeyDown;
+            this.KeyUp += Form1_KeyUp;
         }
 
         private async void Form1_Load(object sender, EventArgs e)
@@ -45,21 +55,58 @@ namespace AIEnglishCoachWithAgent
             _ollamaAgent = new OllamaAgent("gemma3:4b", instructions);
             _thread = _ollamaAgent.CreateNewChatThread();
 
-            AddSystemMessage("Ready. Please start recording.");
+            AddSystemMessage("Ready. Press and hold SPACE to record.");
             this.btnStart.Enabled = true;
         }
 
-        private void btnStart_Click(object sender, EventArgs e)
+        private void Form1_KeyDown(object sender, KeyEventArgs e)
         {
-            btnStop.Enabled = true;
-            _recorder.StartRecording();
+            // 按住 Space 开始录音
+            if (e.KeyCode == Keys.Space && !isRecording && !isProcessing && btnStart.Enabled)
+            {
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                StartRecording();
+            }
         }
 
-        private async void btnStop_Click(object sender, EventArgs e)
+        private async void Form1_KeyUp(object sender, KeyEventArgs e)
         {
+            // 松开 Space 停止录音
+            if (e.KeyCode == Keys.Space && isRecording)
+            {
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                await StopRecording();
+            }
+        }
+
+        private void StartRecording()
+        {
+            if (isRecording || isProcessing) return;
+
+            isRecording = true;
+            btnStop.Enabled = true;
+            btnStart.Enabled = false;
+            _recorder.StartRecording();
+
+            // 视觉反馈
+            this.BackColor = Color.FromArgb(255, 240, 240); // 淡红色表示正在录音
+        }
+
+        private async Task StopRecording()
+        {
+            if (!isRecording) return;
+
+            isRecording = false;
             var stream = _recorder.StopRecording();
             btnStart.Enabled = false;
             btnStop.Enabled = false;
+            isProcessing = true;
+
+            // 恢复背景色
+            this.BackColor = Color.FromArgb(240, 240, 240);
+
             AddSystemMessage("Processing, please wait...");
 
             try
@@ -79,9 +126,20 @@ namespace AIEnglishCoachWithAgent
             }
             finally
             {
+                isProcessing = false;
                 btnStart.Enabled = true;
                 btnStop.Enabled = false;
             }
+        }
+
+        private void btnStart_Click(object sender, EventArgs e)
+        {
+            StartRecording();
+        }
+
+        private async void btnStop_Click(object sender, EventArgs e)
+        {
+            await StopRecording();
         }
 
         private void AddMessage(string sender, string message, MessageBubble.MessageType type)
@@ -140,7 +198,7 @@ namespace AIEnglishCoachWithAgent
             if (scrollStep == 0) scrollStep = distance > 0 ? 1 : -1;
 
             // 创建定时器
-            scrollTimer = new System.Windows.Forms.Timer();
+            scrollTimer = new Timer();
             scrollTimer.Interval = 16; // 约60fps
             scrollTimer.Tick += ScrollTimer_Tick;
             scrollTimer.Start();
@@ -236,7 +294,7 @@ namespace AIEnglishCoachWithAgent
             messageContainer.Controls.Add(messagePanel);
             messageContainer.Location = new Point(20, 80);
             messageContainer.Name = "messageContainer";
-            messageContainer.Size = new Size(360, 539);
+            messageContainer.Size = new Size(360, 525);
             messageContainer.TabIndex = 2;
             // 
             // messagePanel
@@ -254,12 +312,12 @@ namespace AIEnglishCoachWithAgent
             // Form1
             // 
             BackColor = Color.FromArgb(240, 240, 240);
-            ClientSize = new Size(400, 644);
+            ClientSize = new Size(400, 631);
             Controls.Add(btnStart);
             Controls.Add(btnStop);
             Controls.Add(messageContainer);
             Name = "Form1";
-            Text = "AI Coach";
+            Text = "AI Coach - Hold SPACE to record";
             messageContainer.ResumeLayout(false);
             messageContainer.PerformLayout();
             ResumeLayout(false);
