@@ -9,7 +9,8 @@ namespace AIEnglishCoachWithAgent
     {
         private System.Windows.Forms.Button btnStart;
         private System.Windows.Forms.Button btnStop;
-        private System.Windows.Forms.TextBox txtResult;
+        private Panel messageContainer;
+        private Panel messagePanel;
 
         private MicrophoneRecorder _recorder;
         private SpeechRecognizer _whisper;
@@ -17,6 +18,7 @@ namespace AIEnglishCoachWithAgent
 
         private AgentThread? _thread;
         OllamaAgent _ollamaAgent;
+
         public Form1()
         {
             InitializeComponent();
@@ -28,19 +30,17 @@ namespace AIEnglishCoachWithAgent
         {
             this.btnStart.Enabled = false;
             this.btnStop.Enabled = false;
-            this.txtResult.Text = "Initializing, please wait...\r\n";
-            this.txtResult.Font = new Font("Microsoft YaHei", 14);
+            AddSystemMessage("Initializing, please wait...");
 
             _recorder = new MicrophoneRecorder();
             _whisper = await SpeechRecognizer.CreateAsync("ggml-small.en.bin");
             _speaker = new SpeechSynthesizer();
-            //string instructions = "Your name is Stone. You are a spoken English practice partner. Please use only very simple vocabulary and short sentences. Your goal is to help the user have daily conversations in an easy-to-understand way. Please keep the conversation simple and direct. My name is David";
 
             string instructions = "Your name is Stone. You are an English conversation practice partner. Your responses must use vocabulary and sentence structures appropriate or below for the CET-4 (College English Test Band 4) level. Your goal is to conduct engaging daily conversations. IMPORTANT: For TTS compatibility, your output must only contain standard words and common punctuation marks like periods, commas, question marks, and exclamation points. Do not use any special characters, emojis, parentheses, quotation marks, or symbols. My nmae is David";
             _ollamaAgent = new OllamaAgent("gemma3:4b", instructions);
             _thread = _ollamaAgent.CreateNewChatThread();
 
-            this.txtResult.Text = "Ready. Please start recording.\r\n";
+            AddSystemMessage("Ready. Please start recording.");
             this.btnStart.Enabled = true;
         }
 
@@ -48,7 +48,6 @@ namespace AIEnglishCoachWithAgent
         {
             btnStop.Enabled = true;
             _recorder.StartRecording();
-            //txtResult.Text = "录音";
         }
 
         private async void btnStop_Click(object sender, EventArgs e)
@@ -56,24 +55,22 @@ namespace AIEnglishCoachWithAgent
             var stream = _recorder.StopRecording();
             btnStart.Enabled = false;
             btnStop.Enabled = false;
-            txtResult.AppendText("Processing, please wait...\r\n");
+            AddSystemMessage("Processing, please wait...");
 
             try
             {
                 string text = await _whisper.TranscribeAsync(stream);
-
-                txtResult.AppendText($"David: {text}\r\n");
+                AddMessage("David", text, MessageBubble.MessageType.User);
 
                 var response = await _ollamaAgent._agent.RunAsync(text, _thread);
-
-                txtResult.AppendText($"Stone: {response.Text}\r\n\r\n");
+                AddMessage("Stone", response.Text, MessageBubble.MessageType.AI);
 
                 await _speaker.SpeakAsync(response.Text);
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"An error occurred: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                txtResult.AppendText($"ERROR: {ex.Message}\r\n\r\n");
+                AddSystemMessage($"ERROR: {ex.Message}");
             }
             finally
             {
@@ -81,52 +78,97 @@ namespace AIEnglishCoachWithAgent
                 btnStop.Enabled = false;
             }
         }
+
+        private void AddMessage(string sender, string message, MessageBubble.MessageType type)
+        {
+            var bubble = new MessageBubble(sender, message, type);
+            messagePanel.Controls.Add(bubble);
+            bubble.BringToFront();
+
+            // 滚动到底部
+            messageContainer.PerformLayout();
+            messageContainer.ScrollControlIntoView(bubble);
+        }
+
+        private void AddSystemMessage(string message)
+        {
+            var bubble = new MessageBubble("System", message, MessageBubble.MessageType.System);
+            messagePanel.Controls.Add(bubble);
+            bubble.BringToFront();
+
+            // 滚动到底部
+            messageContainer.PerformLayout();
+            messageContainer.ScrollControlIntoView(bubble);
+        }
+
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
             _whisper?.Dispose();
         }
+
         private void InitializeComponent()
         {
-            this.btnStart = new System.Windows.Forms.Button();
-            this.btnStop = new System.Windows.Forms.Button();
-            this.txtResult = new System.Windows.Forms.TextBox();
-            this.SuspendLayout();
+            btnStart = new Button();
+            btnStop = new Button();
+            messageContainer = new Panel();
+            messagePanel = new Panel();
+            messageContainer.SuspendLayout();
+            SuspendLayout();
             // 
             // btnStart
             // 
-            this.btnStart.Location = new System.Drawing.Point(20, 20);
-            this.btnStart.Name = "btnStart";
-            this.btnStart.Size = new System.Drawing.Size(100, 40);
-            this.btnStart.Text = "录音";
-            this.btnStart.Click += new System.EventHandler(this.btnStart_Click);
+            btnStart.Location = new Point(20, 20);
+            btnStart.Name = "btnStart";
+            btnStart.Size = new Size(100, 40);
+            btnStart.TabIndex = 0;
+            btnStart.Text = "录音";
+            btnStart.Click += btnStart_Click;
             // 
             // btnStop
             // 
-            this.btnStop.Enabled = false;
-            this.btnStop.Location = new System.Drawing.Point(140, 20);
-            this.btnStop.Name = "btnStop";
-            this.btnStop.Size = new System.Drawing.Size(100, 40);
-            this.btnStop.Text = "停止";
-            this.btnStop.Click += new System.EventHandler(this.btnStop_Click);
+            btnStop.Enabled = false;
+            btnStop.Location = new Point(140, 20);
+            btnStop.Name = "btnStop";
+            btnStop.Size = new Size(100, 40);
+            btnStop.TabIndex = 1;
+            btnStop.Text = "停止";
+            btnStop.Click += btnStop_Click;
             // 
-            // txtResult
+            // messageContainer
             // 
-            this.txtResult.Location = new System.Drawing.Point(20, 80);
-            this.txtResult.Multiline = true;
-            this.txtResult.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.txtResult.Size = new System.Drawing.Size(360, 200);
+            messageContainer.AutoScroll = true;
+            messageContainer.BackColor = Color.White;
+            messageContainer.BorderStyle = BorderStyle.FixedSingle;
+            messageContainer.Controls.Add(messagePanel);
+            messageContainer.Location = new Point(20, 80);
+            messageContainer.Name = "messageContainer";
+            messageContainer.Size = new Size(360, 500);
+            messageContainer.TabIndex = 2;
             // 
-            // MainForm
+            // messagePanel
             // 
-            this.ClientSize = new System.Drawing.Size(400, 300);
-            this.Controls.Add(this.btnStart);
-            this.Controls.Add(this.btnStop);
-            this.Controls.Add(this.txtResult);
-            this.Text = "AI Coach";
-            this.ResumeLayout(false);
-            this.PerformLayout();
+            messagePanel.AutoSize = true;
+            messagePanel.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            messagePanel.BackColor = Color.White;
+            messagePanel.Dock = DockStyle.Top;
+            messagePanel.Location = new Point(0, 0);
+            messagePanel.Name = "messagePanel";
+            messagePanel.Padding = new Padding(0, 10, 0, 10);
+            messagePanel.Size = new Size(358, 20);
+            messagePanel.TabIndex = 0;
+            // 
+            // Form1
+            // 
+            BackColor = Color.FromArgb(240, 240, 240);
+            ClientSize = new Size(400, 602);
+            Controls.Add(btnStart);
+            Controls.Add(btnStop);
+            Controls.Add(messageContainer);
+            Name = "Form1";
+            Text = "AI Coach";
+            messageContainer.ResumeLayout(false);
+            messageContainer.PerformLayout();
+            ResumeLayout(false);
         }
-
-
     }
 }
