@@ -2,6 +2,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
+using Timer = System.Windows.Forms.Timer;
 
 namespace AIEnglishCoachWithAgent
 {
@@ -10,6 +11,9 @@ namespace AIEnglishCoachWithAgent
         private Label lblMessage;
         private string _sender;
         private string _message;
+        private Timer fadeTimer;
+        private int fadeStep = 0;
+        private const int FADE_STEPS = 10;
 
         public enum MessageType
         {
@@ -25,6 +29,7 @@ namespace AIEnglishCoachWithAgent
 
             this.Padding = new Padding(10);
             this.Margin = new Padding(10, 5, 10, 5);
+            this.DoubleBuffered = true;
 
             lblMessage = new Label
             {
@@ -73,6 +78,77 @@ namespace AIEnglishCoachWithAgent
 
             // 计算高度
             this.Height = lblMessage.PreferredHeight + 20;
+
+            // 初始设置为透明
+            this.Opacity = 0;
+
+            // 启动淡入动画
+            StartFadeIn();
+        }
+
+        private void StartFadeIn()
+        {
+            fadeTimer = new Timer();
+            fadeTimer.Interval = 20; // 20ms 每帧
+            fadeTimer.Tick += FadeTimer_Tick;
+            fadeTimer.Start();
+        }
+
+        private void FadeTimer_Tick(object sender, EventArgs e)
+        {
+            fadeStep++;
+            double opacity = (double)fadeStep / FADE_STEPS;
+
+            // 设置透明度
+            this.Opacity = opacity;
+
+            if (fadeStep >= FADE_STEPS)
+            {
+                fadeTimer.Stop();
+                fadeTimer.Dispose();
+                this.Opacity = 1.0;
+            }
+        }
+
+        // 新增 Opacity 属性支持
+        private double _opacity = 1.0;
+        public double Opacity
+        {
+            get { return _opacity; }
+            set
+            {
+                if (value < 0) value = 0;
+                if (value > 1) value = 1;
+                _opacity = value;
+
+                // 更新控件的透明度
+                UpdateOpacity();
+            }
+        }
+
+        private void UpdateOpacity()
+        {
+            if (lblMessage != null)
+            {
+                Color backColor = lblMessage.BackColor;
+                Color foreColor = lblMessage.ForeColor;
+
+                lblMessage.BackColor = Color.FromArgb(
+                    (int)(255 * _opacity),
+                    backColor.R,
+                    backColor.G,
+                    backColor.B
+                );
+
+                lblMessage.ForeColor = Color.FromArgb(
+                    (int)(255 * _opacity),
+                    foreColor.R,
+                    foreColor.G,
+                    foreColor.B
+                );
+
+                lblMessage.Invalidate();
+            }
         }
 
         private void LblMessage_Paint(object sender, PaintEventArgs e)
@@ -108,6 +184,19 @@ namespace AIEnglishCoachWithAgent
             path.CloseFigure();
 
             return path;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                if (fadeTimer != null)
+                {
+                    fadeTimer.Stop();
+                    fadeTimer.Dispose();
+                }
+            }
+            base.Dispose(disposing);
         }
     }
 }

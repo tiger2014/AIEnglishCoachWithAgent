@@ -19,6 +19,11 @@ namespace AIEnglishCoachWithAgent
         private AgentThread? _thread;
         OllamaAgent _ollamaAgent;
 
+        // 平滑滚动相关
+        private System.Windows.Forms.Timer scrollTimer;
+        private int targetScrollPosition;
+        private int scrollStep;
+
         public Form1()
         {
             InitializeComponent();
@@ -81,28 +86,103 @@ namespace AIEnglishCoachWithAgent
 
         private void AddMessage(string sender, string message, MessageBubble.MessageType type)
         {
+            messageContainer.SuspendLayout();
+
             var bubble = new MessageBubble(sender, message, type);
             messagePanel.Controls.Add(bubble);
             bubble.BringToFront();
 
-            // 滚动到底部
-            messageContainer.PerformLayout();
-            messageContainer.ScrollControlIntoView(bubble);
+            messageContainer.ResumeLayout();
+
+            // 平滑滚动到底部
+            SmoothScrollToBottom();
         }
 
         private void AddSystemMessage(string message)
         {
+            messageContainer.SuspendLayout();
+
             var bubble = new MessageBubble("System", message, MessageBubble.MessageType.System);
             messagePanel.Controls.Add(bubble);
             bubble.BringToFront();
 
-            // 滚动到底部
+            messageContainer.ResumeLayout();
+
+            // 平滑滚动到底部
+            SmoothScrollToBottom();
+        }
+
+        private void SmoothScrollToBottom()
+        {
+            // 如果已经有滚动动画在进行，停止它
+            if (scrollTimer != null && scrollTimer.Enabled)
+            {
+                scrollTimer.Stop();
+            }
+
+            // 计算目标位置
             messageContainer.PerformLayout();
-            messageContainer.ScrollControlIntoView(bubble);
+            int maxScroll = messageContainer.VerticalScroll.Maximum - messageContainer.VerticalScroll.LargeChange + 1;
+            targetScrollPosition = Math.Max(0, maxScroll);
+
+            int currentPosition = messageContainer.VerticalScroll.Value;
+            int distance = targetScrollPosition - currentPosition;
+
+            // 如果距离很小，直接跳转
+            if (Math.Abs(distance) < 10)
+            {
+                messageContainer.AutoScrollPosition = new Point(0, targetScrollPosition);
+                return;
+            }
+
+            // 计算滚动步长
+            scrollStep = distance / 15; // 15帧完成滚动
+            if (scrollStep == 0) scrollStep = distance > 0 ? 1 : -1;
+
+            // 创建定时器
+            scrollTimer = new System.Windows.Forms.Timer();
+            scrollTimer.Interval = 16; // 约60fps
+            scrollTimer.Tick += ScrollTimer_Tick;
+            scrollTimer.Start();
+        }
+
+        private void ScrollTimer_Tick(object sender, EventArgs e)
+        {
+            int currentPosition = messageContainer.VerticalScroll.Value;
+            int newPosition = currentPosition + scrollStep;
+
+            // 检查是否到达目标
+            bool reachedTarget = false;
+            if (scrollStep > 0 && newPosition >= targetScrollPosition)
+            {
+                newPosition = targetScrollPosition;
+                reachedTarget = true;
+            }
+            else if (scrollStep < 0 && newPosition <= targetScrollPosition)
+            {
+                newPosition = targetScrollPosition;
+                reachedTarget = true;
+            }
+
+            // 设置新位置
+            messageContainer.AutoScrollPosition = new Point(0, Math.Abs(newPosition));
+
+            // 如果到达目标，停止定时器
+            if (reachedTarget)
+            {
+                scrollTimer.Stop();
+                scrollTimer.Dispose();
+                scrollTimer = null;
+            }
         }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
+            if (scrollTimer != null)
+            {
+                scrollTimer.Stop();
+                scrollTimer.Dispose();
+            }
             _whisper?.Dispose();
         }
 
@@ -117,21 +197,35 @@ namespace AIEnglishCoachWithAgent
             // 
             // btnStart
             // 
+            btnStart.BackColor = Color.FromArgb(0, 132, 255);
+            btnStart.Cursor = Cursors.Hand;
+            btnStart.FlatAppearance.BorderSize = 0;
+            btnStart.FlatStyle = FlatStyle.Flat;
+            btnStart.Font = new Font("Microsoft YaHei", 10F);
+            btnStart.ForeColor = Color.White;
             btnStart.Location = new Point(20, 20);
             btnStart.Name = "btnStart";
             btnStart.Size = new Size(100, 40);
             btnStart.TabIndex = 0;
             btnStart.Text = "录音";
+            btnStart.UseVisualStyleBackColor = false;
             btnStart.Click += btnStart_Click;
             // 
             // btnStop
             // 
+            btnStop.BackColor = Color.FromArgb(220, 53, 69);
+            btnStop.Cursor = Cursors.Hand;
             btnStop.Enabled = false;
+            btnStop.FlatAppearance.BorderSize = 0;
+            btnStop.FlatStyle = FlatStyle.Flat;
+            btnStop.Font = new Font("Microsoft YaHei", 10F);
+            btnStop.ForeColor = Color.White;
             btnStop.Location = new Point(140, 20);
             btnStop.Name = "btnStop";
             btnStop.Size = new Size(100, 40);
             btnStop.TabIndex = 1;
             btnStop.Text = "停止";
+            btnStop.UseVisualStyleBackColor = false;
             btnStop.Click += btnStop_Click;
             // 
             // messageContainer
@@ -142,7 +236,7 @@ namespace AIEnglishCoachWithAgent
             messageContainer.Controls.Add(messagePanel);
             messageContainer.Location = new Point(20, 80);
             messageContainer.Name = "messageContainer";
-            messageContainer.Size = new Size(360, 500);
+            messageContainer.Size = new Size(360, 539);
             messageContainer.TabIndex = 2;
             // 
             // messagePanel
@@ -160,7 +254,7 @@ namespace AIEnglishCoachWithAgent
             // Form1
             // 
             BackColor = Color.FromArgb(240, 240, 240);
-            ClientSize = new Size(400, 602);
+            ClientSize = new Size(400, 644);
             Controls.Add(btnStart);
             Controls.Add(btnStop);
             Controls.Add(messageContainer);
