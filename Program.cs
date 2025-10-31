@@ -10,8 +10,20 @@ namespace AIEnglishCoachWithAgent
         {
             // To customize application configuration such as set high DPI settings or default font,
             // see https://aka.ms/applicationconfiguration.
-            ApplicationConfiguration.Initialize();
-            Application.Run(new Form1());
+            //ApplicationConfiguration.Initialize();
+            //Application.Run(new Form1());
+
+            TelemetryManager.Initialize();
+
+            try
+            {
+                ApplicationConfiguration.Initialize();
+                Application.Run(new Form1());
+            }
+            finally
+            {
+                TelemetryManager.Shutdown();
+            }
         }
     }
 }

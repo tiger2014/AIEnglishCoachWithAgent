@@ -51,7 +51,7 @@ namespace AIEnglishCoachWithAgent
             _whisper = await SpeechRecognizer.CreateAsync("ggml-small.en.bin");
             _speaker = new SpeechSynthesizer();
 
-            string instructions = "Your name is Stone. You are an English conversation practice partner. Your responses must use vocabulary and sentence structures appropriate or below for the CET-4 (College English Test Band 4) level. Your goal is to conduct engaging daily conversations. IMPORTANT: For TTS compatibility, your output must only contain standard words and common punctuation marks like periods, commas, question marks, and exclamation points. Do not use any special characters, emojis, parentheses, quotation marks, or symbols. My nmae is David";
+            string instructions = "My name is David, Your name is Stone. You are an English conversation practice partner. Your responses must use vocabulary and sentence structures appropriate or below for the CET-4 (College English Test Band 4) level. Your goal is to conduct engaging daily conversations. IMPORTANT: For TTS compatibility, your output must only contain standard words and common punctuation marks like periods, commas, question marks, and exclamation points. Do not use any special characters, emojis, parentheses, quotation marks, or symbols; Don't use extra spaces in your sentence, for an example, it' s is not allowed.";
             _ollamaAgent = new OllamaAgent("gemma3:4b", instructions);
             _thread = _ollamaAgent.CreateNewChatThread();
 

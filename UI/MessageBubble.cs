@@ -112,6 +112,7 @@ namespace AIEnglishCoachWithAgent
 
         // 新增 Opacity 属性支持
         private double _opacity = 1.0;
+
         public double Opacity
         {
             get { return _opacity; }
