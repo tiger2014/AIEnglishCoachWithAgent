@@ -117,7 +117,7 @@ namespace AIEnglishCoachWithAgent
                 var response = await _ollamaAgent._agent.RunAsync(text, _thread);
                 AddMessage("Stone", response.Text, MessageBubble.MessageType.AI);
 
-                await _speaker.SpeakAsync(response.Text);
+                AddMessage("David", text, MessageBubble.MessageType.User);
             }
             catch (Exception ex)
             {
