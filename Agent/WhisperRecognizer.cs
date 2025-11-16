@@ -32,7 +32,7 @@ namespace AIEnglishCoachWithAgent.Agent
             var factory = WhisperFactory.FromPath(modelPath); // 就这么简单！;
 
             recognizer._processor = factory.CreateBuilder()
-                .WithLanguage("auto")     // en,
+                .WithLanguage("auto")     // en,            注意：模型用的english，所以这个不起作用
                 .WithPrintTimestamps(false) // 关键：禁用时间戳输出
                 .Build();
             return recognizer;
