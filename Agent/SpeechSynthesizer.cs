@@ -22,6 +22,12 @@ namespace AIEnglishCoachWithAgent.Agent
 
         public async Task SpeakAsync(string text)
         {
+            // Guard against empty or whitespace input, which can cause errors.
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return;
+            }
+
             var option = new PlayOption
             {
                 Text = text,

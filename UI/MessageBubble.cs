@@ -15,6 +15,8 @@ namespace AIEnglishCoachWithAgent
         private int fadeStep = 0;
         private const int FADE_STEPS = 10;
 
+        public MessageType Type { get; private set; } // Make sure this property is public
+
         public enum MessageType
         {
             User,      // David
@@ -26,6 +28,8 @@ namespace AIEnglishCoachWithAgent
         {
             _sender = sender;
             _message = message;
+
+            this.Type = type;
 
             this.Padding = new Padding(10);
             this.Margin = new Padding(10, 5, 10, 5);

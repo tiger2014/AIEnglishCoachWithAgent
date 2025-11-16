@@ -2,6 +2,7 @@
 using Microsoft.Agents.AI;
 using System.Diagnostics;
 using System.IO;
+using System.Threading.Channels;
 using System.Text;
 using System.Runtime.ExceptionServices;
 using System.Threading;
@@ -17,8 +18,8 @@ namespace AIEnglishCoachWithAgent
         private ComboBox modelComboBox;
         private Panel messagePanel;
 
-        private MicrophoneRecorder _recorder;
-        private WhisperRecognizer _whisper;
+        private NAudioAudioRecorderService _recorder;
+        private WhisperTranscriptionService _whisper;
         private SpeechSynthesizer _speaker;
 
         private AgentThread? _thread;
@@ -34,8 +35,7 @@ namespace AIEnglishCoachWithAgent
         private bool isProcessing = false;
 
         // 实时转录相关
-        private CancellationTokenSource _voskCts;
-        private Task _voskTask;
+        private CancellationTokenSource? _recordingCts;
         private StringBuilder _confirmedTextBuilder = new StringBuilder();
 
         private Stopwatch _stopwatch;
@@ -64,10 +64,11 @@ namespace AIEnglishCoachWithAgent
         {
             try
             {
-                _recorder = new MicrophoneRecorder();
+                _recorder = new NAudioAudioRecorderService(enableRealtimeChannel: false);
 
                 // 异步加载所有AI组件
-                _whisper = await WhisperRecognizer.CreateAsync("ggml-small.en.bin");
+                _whisper = new WhisperTranscriptionService("ggml-small.en.bin");
+                await _whisper.InitializeAsync();
                 //_vosk = await VoskRecognizer.CreateAsync();
                 _speaker = new SpeechSynthesizer();
 
@@ -140,60 +141,98 @@ namespace AIEnglishCoachWithAgent
             if (isRecording || isProcessing) return;
 
             SetUiState(isRecording: true);
-            _recorder.StartRecording();
-            
+
             // 重置实时转录状态
             _confirmedTextBuilder.Clear();
-            //_vosk.Reset();
-            //_voskCts = new CancellationTokenSource();
-            
-            // 在后台任务中开始Vosk实时识别
-            //var liveStream = _recorder.LiveStream;
-            //_voskTask = Task.Run(() => RecognizeVoskStream(liveStream, _voskCts.Token));
+            //AddMessage("David", "...", MessageBubble.MessageType.User); // 添加一个占位气泡
+
+            // 启动录音并获取实时音频通道
+            var audioChannelReader = _recorder.StartRecording();
+
+            if (audioChannelReader != null)
+            {
+                _recordingCts = new CancellationTokenSource();
+                // 启动一个后台任务来处理实时音频流
+                _ = ProcessAudioChannelAsync(audioChannelReader, _recordingCts.Token);
+            }
 
             // 视觉反馈
             this.BackColor = Color.FromArgb(255, 240, 240); // 淡红色表示正在录音
+        }
+
+        private async Task ProcessAudioChannelAsync(ChannelReader<Stream> reader, CancellationToken token)
+        {
+            try
+            {
+                await foreach (var audioStream in reader.ReadAllAsync(token))
+                {
+                    using (audioStream)
+                    {
+                        var segmentText = await _whisper.TranscribeAsync(audioStream);
+                        if (!string.IsNullOrWhiteSpace(segmentText))
+                        {
+                            _confirmedTextBuilder.Append(segmentText);
+                            UpdateUserMessage(_confirmedTextBuilder.ToString(), isPartial: true);
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // This is expected when the user stops recording.
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Realtime-Transcription-Error] {ex.Message}");
+            }
         }
 
         private async Task StopRecording()
         {
             if (!isRecording) return;
 
+            AddSystemMessage("Processing, please wait...");
+
             SetUiState(isFinalizing: true);
 
-            //// 停止Vosk的实时识别任务
-            //_voskCts?.Cancel();
-
-            Stream stream = Stream.Null;
-            if (_recorder.IsRecording)
-            {
-                stream = _recorder.StopRecording();
-            }
-
-            //await _voskTask; // 等待Vosk任务结束
-
-            // 恢复背景色
-            this.BackColor = Color.FromArgb(240, 240, 240);
-
-            AddSystemMessage("Processing, please wait...");
+            // 停止后台处理任务并停止录音
+            _recordingCts?.Cancel();
+            // Await the recorder to fully stop to prevent race conditions.
+            await _recorder.StopRecording(); // Now just one call to await the full stop process.
 
             try
             {
                 _stopwatch.Restart();
-                string text = await _whisper.TranscribeAsync(stream);
+                // 使用 GetFullAudioStream 进行最终的、最准确的转录
+                using var fullAudioStream = _recorder.GetFullAudioStream();
+                string text = await _whisper.TranscribeAsync(fullAudioStream);
                 Debug.WriteLine($"Whisper {_stopwatch.ElapsedMilliseconds}");
 
                 // 使用Whisper的最终结果更新UI
-                UpdateUserMessage(text);
+                //UpdateUserMessage(text, isPartial: false);
+                AddMessage("David", text, MessageBubble.MessageType.User);
 
-                // AddMessage("David", text, MessageBubble.MessageType.User);
+                // If the transcribed text is empty or just whitespace, don't proceed to call the AI.
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    // Optionally remove the placeholder bubble if nothing was said.
+                    var lastBubble = messagePanel.Controls.OfType<MessageBubble>().LastOrDefault(b => b.Dock == DockStyle.Right);
+                    if (lastBubble != null && lastBubble.Controls.OfType<Label>().FirstOrDefault()?.Text == "...")
+                    {
+                        messagePanel.Controls.Remove(lastBubble);
+                    }
+                    // We still need to fall through to the finally block to reset the state.
+                    // So we just return from the try block.
+                    return;
+                }
 
                 _stopwatch.Restart();
                 var response = await _ollamaAgent._agent.RunAsync(text, _thread);
                 Debug.WriteLine($"LLM {_stopwatch.ElapsedMilliseconds}");
 
-                Debug.WriteLine($"input token {response.Usage.InputTokenCount}, out tokens {response.Usage.OutputTokenCount}");
+                // 将AI的回复添加到UI并用语音播放
                 AddMessage("Stone", response.Text, MessageBubble.MessageType.AI);
+                await _speaker.SpeakAsync(response.Text);
 
             }
             catch (Exception ex)
@@ -203,37 +242,12 @@ namespace AIEnglishCoachWithAgent
             }
             finally
             {
+                // This block ensures that the UI state is always reset,
+                // regardless of how the try block exits.
+                this.BackColor = Color.FromArgb(240, 240, 240);
                 SetUiState(isRecording: false);
             }
         }
-
-        //private async Task RecognizeVoskStream(Stream audioStream, CancellationToken cancellationToken)
-        //{
-        //    try
-        //    {
-        //        await foreach (var result in _vosk.RecognizeStreamAsync(audioStream, cancellationToken))
-        //        {
-        //            if (result.IsFinal)
-        //            {
-        //                _confirmedTextBuilder.Append(result.Text).Append(" ");
-        //                UpdateUserMessage(_confirmedTextBuilder.ToString(), isPartial: false);
-        //            }
-        //            else
-        //            {
-        //                // 显示已确认部分 + 当前部分
-        //                UpdateUserMessage(_confirmedTextBuilder.ToString() + result.Text, isPartial: true);
-        //            }
-        //        }
-        //    }
-        //    catch (OperationCanceledException)
-        //    {
-        //        // This is expected when stopping.
-        //    }
-        //    catch (Exception ex)
-        //    {
-        //        Debug.WriteLine($"[Vosk Error] {ex.Message}");
-        //    }
-        //}
 
         private void UpdateUserMessage(string text, bool isPartial = false)
         {
@@ -243,9 +257,12 @@ namespace AIEnglishCoachWithAgent
                 return;
             }
 
-            // 查找最后一个用户气泡并更新它，或者创建一个新的
-            var lastBubble = messagePanel.Controls.OfType<MessageBubble>().LastOrDefault(b => b.Dock == DockStyle.Right);
-            if (lastBubble != null && isRecording) // Only update if we are still recording
+            // Find the last user bubble and update it, or create a new one.
+            // We query by MessageType instead of Dock property because FlowLayoutPanel overrides Dock.
+            // This assumes MessageBubble exposes a public property 'Type' of type MessageBubble.MessageType.
+            var lastBubble = messagePanel.Controls.OfType<MessageBubble>().LastOrDefault(b => b.Type == MessageBubble.MessageType.User);
+
+            if (lastBubble != null)
             {
                 // Find the Label within the MessageBubble and update its text.
                 var textLabel = lastBubble.Controls.OfType<Label>().FirstOrDefault();
@@ -258,6 +275,7 @@ namespace AIEnglishCoachWithAgent
             }
             else
             {
+                // This case should ideally not happen if we pre-add a bubble in StartRecording
                 AddMessage("David", text, MessageBubble.MessageType.User);
             }
             SmoothScrollToBottom();
@@ -389,8 +407,7 @@ namespace AIEnglishCoachWithAgent
                 scrollTimer.Dispose();
             }
             _whisper?.Dispose();
-            // No need to dispose _recorder here as it's handled by its own methods,
-            // but disposing heavy recognizers is crucial.
+            _recorder?.Dispose();
         }
 
         private void InitializeComponent()
