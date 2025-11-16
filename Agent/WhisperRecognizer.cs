@@ -1,4 +1,5 @@
-﻿using Microsoft.VisualBasic;
+﻿using Microsoft.Extensions.Options;
+using Microsoft.VisualBasic;
 using NAudio.Wave;
 using System.Diagnostics;
 using System.IO;
@@ -8,14 +9,14 @@ using Whisper.net.Ggml;
 
 namespace AIEnglishCoachWithAgent.Agent
 {
-    public class SpeechRecognizer : IDisposable
+    public class WhisperRecognizer : IDisposable
     {
         private WhisperProcessor _processor;
 
-        private SpeechRecognizer() { }
-        public static async Task<SpeechRecognizer> CreateAsync(string modelName = "ggml-small.en.bin")
+        private WhisperRecognizer() { }
+        public static async Task<WhisperRecognizer> CreateAsync(string modelName = "ggml-small.en.bin")
         {
-            var recognizer = new SpeechRecognizer();
+            var recognizer = new WhisperRecognizer();
             var modelDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "models");
             if (!Directory.Exists(modelDir)) Directory.CreateDirectory(modelDir);
             var modelPath = Path.Combine(modelDir, modelName);
@@ -28,9 +29,11 @@ namespace AIEnglishCoachWithAgent.Agent
                 using var fileWriter = File.OpenWrite(modelPath);
                 await modelStream.CopyToAsync(fileWriter);
             }
-            var factory = WhisperFactory.FromPath(modelPath);
+            var factory = WhisperFactory.FromPath(modelPath); // 就这么简单！;
+
             recognizer._processor = factory.CreateBuilder()
-                .WithLanguage("en")
+                .WithLanguage("auto")     // en,
+                .WithPrintTimestamps(false) // 关键：禁用时间戳输出
                 .Build();
             return recognizer;
         }

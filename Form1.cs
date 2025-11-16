@@ -1,20 +1,24 @@
 ﻿using AIEnglishCoachWithAgent.Agent;
 using Microsoft.Agents.AI;
+using System.Diagnostics;
 using System.IO;
+using System.Text;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using Timer = System.Windows.Forms.Timer;
 
 namespace AIEnglishCoachWithAgent
 {
-    public partial class Form1 : Form
+    public partial class Form1 : Form, IDisposable
     {
         private System.Windows.Forms.Button btnStart;
         private System.Windows.Forms.Button btnStop;
         private Panel messageContainer;
+        private ComboBox modelComboBox;
         private Panel messagePanel;
 
         private MicrophoneRecorder _recorder;
-        private SpeechRecognizer _whisper;
+        private WhisperRecognizer _whisper;
         private SpeechSynthesizer _speaker;
 
         private AgentThread? _thread;
@@ -29,11 +33,19 @@ namespace AIEnglishCoachWithAgent
         private bool isRecording = false;
         private bool isProcessing = false;
 
+        // 实时转录相关
+        private CancellationTokenSource _voskCts;
+        private Task _voskTask;
+        private StringBuilder _confirmedTextBuilder = new StringBuilder();
+
+        private Stopwatch _stopwatch;
+
         public Form1()
         {
             InitializeComponent();
             this.FormClosing += Form1_FormClosing;
             this.Load += new System.EventHandler(Form1_Load);
+            this.Shown += new System.EventHandler(Form1_Shown); // 新增 Shown 事件处理
 
             // 启用键盘事件
             this.KeyPreview = true;
@@ -41,26 +53,68 @@ namespace AIEnglishCoachWithAgent
             this.KeyUp += Form1_KeyUp;
         }
 
-        private async void Form1_Load(object sender, EventArgs e)
+        private void Form1_Load(object sender, EventArgs e)
         {
-            this.btnStart.Enabled = false;
-            this.btnStop.Enabled = false;
+            SetUiState(isInitializing: true);
             AddSystemMessage("Initializing, please wait...");
-
-            _recorder = new MicrophoneRecorder();
-            _whisper = await SpeechRecognizer.CreateAsync("ggml-small.en.bin");
-            _speaker = new SpeechSynthesizer();
-
-            string instructions = "My name is David, Your name is Stone. You are an English conversation practice partner. Your responses must use vocabulary and sentence structures appropriate or below for the CET-4 (College English Test Band 4) level. Your goal is to conduct engaging daily conversations. IMPORTANT: For TTS compatibility, your output must only contain standard words and common punctuation marks like periods, commas, question marks, and exclamation points. Do not use any special characters, emojis, parentheses, quotation marks, or symbols; Don't use extra spaces in your sentence, for an example, it' s is not allowed.";
-            _ollamaAgent = new OllamaAgent("gemma3:4b", instructions);
-            _thread = _ollamaAgent.CreateNewChatThread();
-
-            AddSystemMessage("Ready. Press and hold SPACE to record.");
-            this.btnStart.Enabled = true;
+            _stopwatch = new Stopwatch();
         }
 
-        private void Form1_KeyDown(object sender, KeyEventArgs e)
+        private async void Form1_Shown(object sender, EventArgs e)
         {
+            try
+            {
+                _recorder = new MicrophoneRecorder();
+
+                // 异步加载所有AI组件
+                _whisper = await WhisperRecognizer.CreateAsync("ggml-small.en.bin");
+                //_vosk = await VoskRecognizer.CreateAsync();
+                _speaker = new SpeechSynthesizer();
+
+                InitializeAgentAndThread();
+                // 订阅事件
+                _ollamaAgent.OnRequestUrlInput += ShowUrlInputDialog;
+
+                AddSystemMessage("Ready. Press and hold SPACE to record.");
+                SetUiState(isRecording: false); // 初始化完成，启用UI
+            }
+            catch (Exception ex)
+            {
+                // 捕获任何初始化期间的致命错误，并友好地提示用户
+                var errorMessage = $"Failed to initialize AI components: {ex.Message}\n\nThe application will now close.";
+                MessageBox.Show(errorMessage, "Initialization Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                this.Close(); // 关闭应用程序
+            }
+        }
+
+        private void InitializeAgentAndThread()
+        {
+            string selectedModel = modelComboBox.SelectedItem.ToString();
+            string instructions = "My name is David, Your name is Stone. You are an English conversation practice partner. Your responses must use vocabulary and sentence structures appropriate or below for the CET-4 (College English Test Band 4) level. Your goal is to conduct engaging daily conversations. IMPORTANT: For TTS compatibility, your output must only contain standard words and common punctuation marks like periods, commas, question marks, and exclamation points. Do not use any special characters, emojis, parentheses, quotation marks, or symbols; Don't use extra spaces in your sentence, for an example, it' s is not allowed.";
+            _ollamaAgent = new OllamaAgent(selectedModel, instructions);
+            _thread = _ollamaAgent.CreateNewChatThread();
+        }
+        
+        private async Task<string> ShowUrlInputDialog()
+        {
+            // 方式1：使用自定义对话框
+            using (var dialog = new UrlInputDialog())
+            {
+                if (dialog.ShowDialog() == DialogResult.OK)
+                {
+                    return dialog.urlTxt;
+                }
+            }
+
+            // 方式2：使用简单的InputBox（需要自己实现或用第三方库）
+            // string url = InputBox.Show("Please enter news URL:", "News URL");
+
+            return string.Empty;
+        }
+
+        private async void Form1_KeyDown(object sender, KeyEventArgs e)
+        {
+
             // 按住 Space 开始录音
             if (e.KeyCode == Keys.Space && !isRecording && !isProcessing && btnStart.Enabled)
             {
@@ -85,10 +139,17 @@ namespace AIEnglishCoachWithAgent
         {
             if (isRecording || isProcessing) return;
 
-            isRecording = true;
-            btnStop.Enabled = true;
-            btnStart.Enabled = false;
+            SetUiState(isRecording: true);
             _recorder.StartRecording();
+            
+            // 重置实时转录状态
+            _confirmedTextBuilder.Clear();
+            //_vosk.Reset();
+            //_voskCts = new CancellationTokenSource();
+            
+            // 在后台任务中开始Vosk实时识别
+            //var liveStream = _recorder.LiveStream;
+            //_voskTask = Task.Run(() => RecognizeVoskStream(liveStream, _voskCts.Token));
 
             // 视觉反馈
             this.BackColor = Color.FromArgb(255, 240, 240); // 淡红色表示正在录音
@@ -98,11 +159,18 @@ namespace AIEnglishCoachWithAgent
         {
             if (!isRecording) return;
 
-            isRecording = false;
-            var stream = _recorder.StopRecording();
-            btnStart.Enabled = false;
-            btnStop.Enabled = false;
-            isProcessing = true;
+            SetUiState(isFinalizing: true);
+
+            //// 停止Vosk的实时识别任务
+            //_voskCts?.Cancel();
+
+            Stream stream = Stream.Null;
+            if (_recorder.IsRecording)
+            {
+                stream = _recorder.StopRecording();
+            }
+
+            //await _voskTask; // 等待Vosk任务结束
 
             // 恢复背景色
             this.BackColor = Color.FromArgb(240, 240, 240);
@@ -111,13 +179,22 @@ namespace AIEnglishCoachWithAgent
 
             try
             {
+                _stopwatch.Restart();
                 string text = await _whisper.TranscribeAsync(stream);
-                AddMessage("David", text, MessageBubble.MessageType.User);
+                Debug.WriteLine($"Whisper {_stopwatch.ElapsedMilliseconds}");
 
+                // 使用Whisper的最终结果更新UI
+                UpdateUserMessage(text);
+
+                // AddMessage("David", text, MessageBubble.MessageType.User);
+
+                _stopwatch.Restart();
                 var response = await _ollamaAgent._agent.RunAsync(text, _thread);
+                Debug.WriteLine($"LLM {_stopwatch.ElapsedMilliseconds}");
+
+                Debug.WriteLine($"input token {response.Usage.InputTokenCount}, out tokens {response.Usage.OutputTokenCount}");
                 AddMessage("Stone", response.Text, MessageBubble.MessageType.AI);
 
-                AddMessage("David", text, MessageBubble.MessageType.User);
             }
             catch (Exception ex)
             {
@@ -126,9 +203,79 @@ namespace AIEnglishCoachWithAgent
             }
             finally
             {
-                isProcessing = false;
-                btnStart.Enabled = true;
-                btnStop.Enabled = false;
+                SetUiState(isRecording: false);
+            }
+        }
+
+        //private async Task RecognizeVoskStream(Stream audioStream, CancellationToken cancellationToken)
+        //{
+        //    try
+        //    {
+        //        await foreach (var result in _vosk.RecognizeStreamAsync(audioStream, cancellationToken))
+        //        {
+        //            if (result.IsFinal)
+        //            {
+        //                _confirmedTextBuilder.Append(result.Text).Append(" ");
+        //                UpdateUserMessage(_confirmedTextBuilder.ToString(), isPartial: false);
+        //            }
+        //            else
+        //            {
+        //                // 显示已确认部分 + 当前部分
+        //                UpdateUserMessage(_confirmedTextBuilder.ToString() + result.Text, isPartial: true);
+        //            }
+        //        }
+        //    }
+        //    catch (OperationCanceledException)
+        //    {
+        //        // This is expected when stopping.
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        Debug.WriteLine($"[Vosk Error] {ex.Message}");
+        //    }
+        //}
+
+        private void UpdateUserMessage(string text, bool isPartial = false)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action(() => UpdateUserMessage(text, isPartial)));
+                return;
+            }
+
+            // 查找最后一个用户气泡并更新它，或者创建一个新的
+            var lastBubble = messagePanel.Controls.OfType<MessageBubble>().LastOrDefault(b => b.Dock == DockStyle.Right);
+            if (lastBubble != null && isRecording) // Only update if we are still recording
+            {
+                // Find the Label within the MessageBubble and update its text.
+                var textLabel = lastBubble.Controls.OfType<Label>().FirstOrDefault();
+                if (textLabel != null)
+                {
+                    textLabel.Text = text;
+                    textLabel.ForeColor = isPartial ? Color.Gray : Color.Black;
+                    lastBubble.Invalidate(); // Force a repaint to resize correctly
+                }
+            }
+            else
+            {
+                AddMessage("David", text, MessageBubble.MessageType.User);
+            }
+            SmoothScrollToBottom();
+        }
+
+        private void SetUiState(bool isInitializing = false, bool isRecording = false, bool isFinalizing = false)
+        {
+            this.isRecording = isRecording;
+            this.isProcessing = isRecording || isFinalizing;
+
+            bool enableControls = !isInitializing && !isProcessing;
+
+            btnStart.Enabled = enableControls;
+            btnStop.Enabled = isRecording;
+            modelComboBox.Enabled = enableControls;
+            if (isInitializing)
+            {
+                btnStart.Enabled = false;
             }
         }
 
@@ -242,12 +389,15 @@ namespace AIEnglishCoachWithAgent
                 scrollTimer.Dispose();
             }
             _whisper?.Dispose();
+            // No need to dispose _recorder here as it's handled by its own methods,
+            // but disposing heavy recognizers is crucial.
         }
 
         private void InitializeComponent()
         {
             btnStart = new Button();
             btnStop = new Button();
+            modelComboBox = new ComboBox();
             messageContainer = new Panel();
             messagePanel = new Panel();
             messageContainer.SuspendLayout();
@@ -286,6 +436,17 @@ namespace AIEnglishCoachWithAgent
             btnStop.UseVisualStyleBackColor = false;
             btnStop.Click += btnStop_Click;
             // 
+            // modelComboBox
+            // 
+            modelComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            modelComboBox.FormattingEnabled = true;
+            modelComboBox.Items.AddRange(new object[] { "qwen3:4b", "qwen3:14b" });
+            modelComboBox.SelectedIndex = 0;
+            modelComboBox.Location = new Point(296, 33);
+            modelComboBox.Name = "modelComboBox";
+            modelComboBox.Size = new Size(81, 23);
+            modelComboBox.TabIndex = 4;
+            // 
             // messageContainer
             // 
             messageContainer.AutoScroll = true;
@@ -315,6 +476,7 @@ namespace AIEnglishCoachWithAgent
             ClientSize = new Size(400, 631);
             Controls.Add(btnStart);
             Controls.Add(btnStop);
+            Controls.Add(modelComboBox);
             Controls.Add(messageContainer);
             Name = "Form1";
             Text = "AI Coach - Hold SPACE to record";

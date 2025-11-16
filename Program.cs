@@ -13,16 +13,18 @@ namespace AIEnglishCoachWithAgent
             //ApplicationConfiguration.Initialize();
             //Application.Run(new Form1());
 
-            TelemetryManager.Initialize();
+            //TelemetryManager.Initialize();
 
             try
             {
+                // Temporarily disable OpenTelemetry to rule out conflicts with native libraries.
+                // TelemetryManager.Initialize();
                 ApplicationConfiguration.Initialize();
                 Application.Run(new Form1());
             }
             finally
             {
-                TelemetryManager.Shutdown();
+                //TelemetryManager.Shutdown();
             }
         }
     }

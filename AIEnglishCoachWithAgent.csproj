@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -10,15 +10,17 @@
 
   <ItemGroup>
     <PackageReference Include="Edge_tts_sharp" Version="1.1.5" />
-    <PackageReference Include="Microsoft.Agents.AI" Version="1.0.0-preview.251028.1" />
+    <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.0.0-preview.251114.1" />
+    <PackageReference Include="Microsoft.Extensions.Http.Polly" Version="10.0.0" />
     <PackageReference Include="NAudio" Version="2.2.1" />
-    <PackageReference Include="OllamaSharp" Version="5.4.8" />
-    <PackageReference Include="OpenTelemetry" Version="1.14.0-rc.1" />
-    <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.14.0-rc.1" />
-    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.14.0-rc.1" />
-    <PackageReference Include="System.Reactive" Version="6.1.0" />
-    <PackageReference Include="Whisper.net" Version="1.9.0-preview2" />
-    <PackageReference Include="Whisper.net.Runtime" Version="1.9.0-preview2" />
+    <PackageReference Include="OllamaSharp" Version="5.4.11" />
+    <PackageReference Include="OpenTelemetry" Version="1.14.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.14.0" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.14.0" />
+    <PackageReference Include="System.Reactive" Version="7.0.0-preview.1" />
+    <PackageReference Include="Whisper.net" Version="1.8.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.8.1" />
   </ItemGroup>
 
   <ItemGroup>
